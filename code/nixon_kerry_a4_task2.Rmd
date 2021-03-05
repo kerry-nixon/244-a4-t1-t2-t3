@@ -1,0 +1,116 @@
+---
+title: 'A4-task2: Parameteer Estimation'
+author: "Kerry Nixon"
+date: "3/5/2021"
+output: 
+  html_document:
+    code_folding: 'hide'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+library(tidyverse)
+library(here)
+library(boot)
+library(gt)
+library(patchwork)
+library(broom)
+library(nlstools)
+library(janitor)
+```
+
+
+```{r}
+# Read in data
+
+catch <- read.csv(here("data/fish_catch.csv"), skip = 2) %>% 
+  clean_names() %>% 
+  drop_na() %>% 
+  mutate(wild_catch = as.numeric(wild_catch)) %>% 
+  mutate(year_index = as.numeric(year) - 1950)
+
+# Exploratory Data Viz
+ggplot(data = catch, aes(x = year_index, y = wild_catch)) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = "time (years, begin 1950)", y = "wild fish catch (mm tons)")
+
+# Log tansformed version:
+ggplot(data = catch, aes(x = year_index, y = log(wild_catch))) +
+  geom_point() +
+  theme_minimal() +
+  labs(x = "time (years, begin 1950)", y = "wild fish catch (mm tons)")
+```
+
+
+The wild fish catch looks to increase logistically, with an upper bound limiting growth in catch appearing in data in the last 25 years of observations. 
+
+Recall the logistic growth equation: 
+
+$P(t)=\frac{K}{1+Ae^{-kt}}$, where
+
+- $K$ is the upper bound on wild catch
+- $A$ is $\frac{K-P_0}{P_0}$
+- $k$ is the growth rate constant
+
+
+```{r}
+# Get only up to 40 years of catch data & log transform the catch tonnage
+# We do this so we can estimate the growth rate constant (k) *during exponential growth phase)
+catch_exp <- catch %>% 
+  filter(year_index < 40) %>% 
+  mutate(ln_wild_catch = log(wild_catch))
+  
+# Model linear to get *k* estimate (the slope of this linear equation is an estimate of the growth rate constant):
+lm_k <- lm(ln_wild_catch ~ year_index, data = catch_exp)
+lm_k
+
+# Coefficient (k) ~ 0.036
+```
+Now we have initial estimate for *k* (0.036), and we can estimate *K* ~ 90 and *A* ~ 4.2 as starting points for iterative algorithms trying to converge on the parameters. 
+
+We'll estimate the parameters using nonlinear least squares (NLS): 
+
+```{r}
+df_nls <- nls(wild_catch ~ K/(1 + A*exp(-k*year_index)),
+              data = catch,
+              start = list(K = 90, A = 4.2, k = 0.036),
+              trace = TRUE)
+
+# See the model summary (null hypothesis: parameter value = 0)
+summary(df_nls)
+
+# Use broom:: functions to get model outputs in tidier format: 
+model_out <- broom::tidy(df_nls) # Use View(model_out) to see the tidy model output.
+model_out
+
+# Want to just get one of these?  
+A_est <- model_out$estimate[2] # Gets the first rown in the estimate column.
+```
+
+Our model with estimated parameters is:
+$$P(t) = \frac{100.28}{1+4.32e^{-0.07t}}$$
+```{r}
+# Make predictions for the population at all of those times (time) in the original df: 
+catch_predict <- predict(df_nls)
+
+# Bind predictions to original data frame:
+catch_complete <- data.frame(catch, catch_predict)
+
+# Plot them all together:
+ggplot(data = catch_complete, aes(x = year_index, y = wild_catch)) +
+  geom_point() +
+  geom_line(aes(x = year_index, y = catch_predict)) +
+  theme_minimal()
+
+```
+
+
+## Data Citation:
+
+Global wild fish catch and aquaculture production, compiled by Earth Policy Institute with 1950-2010 from U.N. Food and Agriculture Organization (FAO), Global Capture Production and Global Aquaculture Production, electronic databases, at www.fao.org/fishery/topic/16140/en.
+
+
