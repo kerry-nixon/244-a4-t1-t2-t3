@@ -1,0 +1,123 @@
+---
+title: "a4-task1 - agglomerative hierarchical clustering"
+author: "Kerry Nixon"
+date: "3/5/2021"
+output: 
+  html_document:
+    code_folding: 'hide'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE)
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(palmerpenguins)
+library(NbClust)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(ggdendro)
+library(naniar)
+library(stringr)
+```
+
+
+### Hierarchical Clustering
+
+For Task 1, use hierarchical clustering by complete linkage to create a dendrogram showing multivariate clustering for water chemistry by site. 
+
+To perform hierarchical clustering by site, you’ll want to make a data frame that has a single summary row per site (e.g. based on means from all observations at that site), then calculate the euclidean distance before performing complete linkage agglomerative hierarchical clustering. 
+
+
+```{r}
+# Reading in the data and replacing "-999" with "NA" and clean_names()
+stream_chem_raw <- read.csv(here("data/sbc_lter_registered_stream_chemistry.csv")) %>% 
+  replace_with_na_all(condition = ~.x == -999) %>% 
+  clean_names()
+
+# Data Wrangling:
+
+# Drop rows where any of the four size measurements are missing
+stream_chem_summ <- stream_chem_raw %>% 
+  group_by(site_code) %>% 
+  summarize(nh4_u_m = mean(nh4_u_m, na.rm = TRUE),
+            no3_u_m = mean(no3_u_m, na.rm = TRUE),
+            po4_u_m = mean(po4_u_m, na.rm = TRUE),
+            tdn_u_m = mean(tdn_u_m, na.rm = TRUE),
+            tdp_u_m = mean(tdp_u_m, na.rm = TRUE),
+            tpc_u_m = mean(tpc_u_m, na.rm = TRUE),
+            tpn_u_m = mean(tpn_u_m, na.rm = TRUE),
+            tpp_u_m = mean(tpp_u_m, na.rm = TRUE),
+            tss_mgper_liter = mean(tss_mgper_liter, na.rm = TRUE),
+            spec_cond_u_spercm = mean(spec_cond_u_spercm, na.rm = TRUE)) %>% 
+  drop_na()
+
+# Exploratory Data Visualization
+
+# nh4 vs po4 exploratory plot:
+ggplot(stream_chem_summ) +
+  geom_point(aes(x = nh4_u_m, 
+                 y = po4_u_m),
+             size = 3,
+             alpha = 0.7)
+
+# tdn vs tpn exploratory plot: 
+ggplot(stream_chem_summ) +
+  geom_point(aes(x = tdn_u_m, 
+                 y = tpn_u_m),
+             size = 3,
+             alpha = 0.7)
+
+
+# Data wrangling:
+
+# Scale numeric variables
+stream_scale <- stream_chem_summ %>% 
+  select(ends_with("m")) %>% 
+  scale()
+
+# Update to add rownames (country name) from wb_ghg_20
+rownames(stream_scale) <- stream_chem_summ$site_code
+
+# Compute dissimilarity values (Euclidean distances):
+euc_dist <- dist(stream_scale, method = "euclidean")
+
+# Checking:
+#View(euc_dist)
+
+# Hierarchical clustering (complete linkage)
+hc_complete <- hclust(euc_dist, method = "complete" )
+
+# Plot it (base plot):
+plot(hc_complete, cex = 0.6, hang = -1)
+
+# Convert to class dendrogram
+dend_complete <- as.dendrogram(hc_complete)
+
+# Data Visualization - Stream chemistry dendrogram
+ggdendrogram(hc_complete, 
+             rotate = TRUE) +
+  theme_minimal() +
+  labs(x = "Stream Site Code",
+       y = "Euclidian Distance")
+
+# COOL. Then you can customize w/ usual ggplot tools. 
+
+```
+
+
+
+
+
+
+
+## Data Citation: 
+
+Santa Barbara Coastal LTER and J. Melack. 2019. SBC LTER: Land: Stream chemistry in the Santa Barbara Coastal drainage area, ongoing since 2000 ver 16. Environmental Data Initiative. https://doi.org/10.6073/pasta/67a558a24ceed9a0a5bf5e46ab841174. 
+
+
+
